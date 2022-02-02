@@ -4,6 +4,7 @@ import android.app.Activity
 import android.os.Bundle
 import android.os.Handler
 import android.util.Log
+import androidx.appcompat.app.AlertDialog
 import androidx.core.view.isGone
 import androidx.core.view.isVisible
 import com.dedsec.exoplayertest.databinding.ActivityPlayerBinding
@@ -12,18 +13,21 @@ import com.google.android.exoplayer2.drm.DefaultDrmSessionManager
 import com.google.android.exoplayer2.drm.HttpMediaDrmCallback
 import com.google.android.exoplayer2.source.DefaultMediaSourceFactory
 import com.google.android.exoplayer2.source.MediaSourceFactory
-import com.google.android.exoplayer2.source.hls.HlsMediaSource
+import com.google.android.exoplayer2.source.TrackGroupArray
+import com.google.android.exoplayer2.source.dash.DashMediaSource
 import com.google.android.exoplayer2.trackselection.DefaultTrackSelector
 import com.google.android.exoplayer2.trackselection.DefaultTrackSelector.ParametersBuilder
+import com.google.android.exoplayer2.trackselection.DefaultTrackSelector.SelectionOverride
 import com.google.android.exoplayer2.ui.DefaultTrackNameProvider
 import com.google.android.exoplayer2.ui.TrackNameProvider
-import com.google.android.exoplayer2.ui.TrackSelectionDialogBuilder
 import com.google.android.exoplayer2.upstream.DataSource
 import com.google.android.exoplayer2.upstream.DefaultBandwidthMeter
 import com.google.android.exoplayer2.upstream.DefaultDataSource
 import com.google.android.exoplayer2.upstream.DefaultHttpDataSource
 import com.google.android.exoplayer2.util.Assertions
 import com.google.android.exoplayer2.util.Util
+import com.google.gson.Gson
+import java.util.*
 
 
 class PlayerActivity : Activity(), Player.Listener {
@@ -32,15 +36,17 @@ class PlayerActivity : Activity(), Player.Listener {
     private lateinit var binding : ActivityPlayerBinding
     private lateinit var trackSelector: DefaultTrackSelector
     private lateinit var trackSelectorParameters: ParametersBuilder
+    private lateinit var trackGroupArray: TrackGroupArray
     private val TAG = "TRACK_DETAILS"
 
+    private val trackList = ArrayList<String>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivityPlayerBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        binding.detailBtn.setOnClickListener { getTrackDetails() }
+        binding.detailBtn.setOnClickListener { showDialog() }
     }
 
 
@@ -54,13 +60,13 @@ class PlayerActivity : Activity(), Player.Listener {
 
         val mediaDataSourceFactory: DataSource.Factory = DefaultDataSource.Factory(this)
 
-        val mediaSource = HlsMediaSource.Factory(DefaultHttpDataSource.Factory())
-            .createMediaSource(MediaItem.fromUri(STREAM_URL))
+//        val mediaSource = HlsMediaSource.Factory(DefaultHttpDataSource.Factory())
+//            .createMediaSource(MediaItem.fromUri(STREAM_URL_M3U8))
 
-//        val mediaSource =
-//            DashMediaSource.Factory(mediaDataSourceFactory)
-//                .setDrmSessionManager(drmSessionManager)
-//                .createMediaSource(MediaItem.fromUri(STREAM_URL))
+        val mediaSource =
+            DashMediaSource.Factory(mediaDataSourceFactory)
+                .setDrmSessionManager(drmSessionManager)
+                .createMediaSource(MediaItem.fromUri(STREAM_URL_MPD))
 
         val mediaSourceFactory: MediaSourceFactory =
             DefaultMediaSourceFactory(mediaDataSourceFactory)
@@ -87,8 +93,6 @@ class PlayerActivity : Activity(), Player.Listener {
         exoPlayer.addMediaSource(mediaSource)
         exoPlayer.addListener(this)
 
-
-
         exoPlayer.playWhenReady = true
         binding.playerView.player = exoPlayer
         binding.playerView.requestFocus()
@@ -96,7 +100,7 @@ class PlayerActivity : Activity(), Player.Listener {
 
 
     private fun getTrackDetails() {
-
+        trackList.clear()
         val rendererInd = 0
         val mappedTrackInfo = Assertions.checkNotNull(trackSelector.currentMappedTrackInfo)
 
@@ -107,14 +111,15 @@ class PlayerActivity : Activity(), Player.Listener {
             Log.e("TRACK_INDEX", format.id.toString())
         }
 
-        for (rendererIndex in 0 until mappedTrackInfo.rendererCount) {
+        for (rendererIndex in 0 until 1) {
 
             val trackType = mappedTrackInfo.getRendererType(rendererIndex)
-            val trackGroupArray = mappedTrackInfo.getTrackGroups(rendererIndex)
+            trackGroupArray = mappedTrackInfo.getTrackGroups(rendererIndex)
 
             Log.d(TAG, "TRACK ITEM $rendererIndex")
             Log.d(TAG, "TRACK_TYPE: " + trackTypeToName(trackType))
             Log.d(TAG, "TRACK_TYPE_THIS: $trackNameProvider")
+            Log.d(TAG, "GROUP_ARRAY: " + Gson().toJson(trackGroupArray))
 
             for (groupIndex in 0 until trackGroupArray.length) {
 
@@ -124,18 +129,52 @@ class PlayerActivity : Activity(), Player.Listener {
                         trackGroupArray[groupIndex].getFormat(trackIndex))
 
                     Log.d(TAG, "ITEM CODEC: $trackName")
+                    trackList.add(trackName)
                 }
             }
         }
 
-        val trackSelector = TrackSelectionDialogBuilder(
-            this,
-            "Select Track",
-            trackSelector,
-            rendererInd
-        ).build()
-        trackSelector.show()
+
     }
+
+    private fun showDialog() {
+        val array: Array<String> = trackList.toArray(arrayOfNulls<String>(trackList.size))
+        val builder = AlertDialog.Builder(this)
+        builder.setTitle("Select Track")
+        builder.setItems(array) { _, index ->
+            Log.e("TRACK_INDEX", index.toString())
+            setTrack(index)
+        }
+        val dialog = builder.create()
+        dialog.show()
+    }
+
+    @Suppress("DEPRECATION")
+    private fun setTrack(track: Int) {
+        println("setVideoTrack: $track")
+        val mappedTrackInfo = Assertions.checkNotNull(trackSelector.currentMappedTrackInfo)
+        val parameters = trackSelector.parameters
+        val builder = parameters.buildUpon()
+
+        for (rendererIndex in 0 until mappedTrackInfo.rendererCount) {
+
+            val trackType = mappedTrackInfo.getRendererType(rendererIndex)
+            if (trackType == C.TRACK_TYPE_VIDEO) {
+                builder.clearSelectionOverrides(rendererIndex)
+                    .setRendererDisabled(rendererIndex, false)
+
+                val tracks = intArrayOf(0)
+                val override = SelectionOverride(track, *tracks)
+                builder.setSelectionOverride(
+                    rendererIndex,
+                    mappedTrackInfo.getTrackGroups(rendererIndex),
+                    override
+                )
+            }
+        }
+        trackSelector.setParameters(builder)
+    }
+
 
     private fun trackTypeToName(trackType: Int): String {
         return when (trackType) {
@@ -159,6 +198,7 @@ class PlayerActivity : Activity(), Player.Listener {
             Player.STATE_READY -> {
                 println("READY")
                 binding.progressBar.isGone = true
+                getTrackDetails()
             }
             Player.STATE_ENDED -> {
                 println("ENDED")
@@ -167,10 +207,12 @@ class PlayerActivity : Activity(), Player.Listener {
     }
 
     override fun onPlayerError(error: PlaybackException) {
-        Log.e("PLAYBACK_ERROR_MESSAGE", error.message.toString())
+        Log.e("PLAYBACK_ERROR_MESSAGE", error.toString())
         Log.e("PLAYBACK_ERROR_CAUSE", error.cause.toString())
         Log.e("PLAYBACK_ERROR_CNAME", error.errorCodeName)
         Log.e("PLAYBACK_ERROR_CODE", error.errorCode.toString())
+        Log.e("ERROR_STACKTRACE", error.stackTraceToString())
+        Log.e("ERROR_SUPP_EXCEPTIONS", error.suppressedExceptions.toString())
     }
 
 
@@ -199,7 +241,78 @@ class PlayerActivity : Activity(), Player.Listener {
     }
 
     companion object {
-        const val STREAM_URL = "https://devstreaming-cdn.apple.com/videos/streaming/examples/bipbop_4x3/bipbop_4x3_variant.m3u8"
-        const val LICENCE_URL = "https://proxy.uat.widevine.com/proxy?provider=widevine_test"
+        const val STREAM_URL_M3U8 = "https://devstreaming-cdn.apple.com/videos/streaming/examples/bipbop_4x3/bipbop_4x3_variant.m3u8"
+        const val STREAM_URL_MPD = "https://storage.googleapis.com/wvmedia/cenc/h264/tears/tears.mpd"
+        const val LICENCE_URL = "https://proxy.uat.widevine.com/proxy?video_id=GTS_HW_SECURE_ALL&provider=widevine_test"
     }
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+//    fun setSelectedTrack(type: TrackType, groupIndex: Int, trackIndex: Int) {
+//
+//        val mappedTrackInfo = trackSelector.currentMappedTrackInfo
+//        val tracksInfo: ExoPlayerRendererTracksInfo =
+//            getExoPlayerTracksInfo(type, groupIndex, mappedTrackInfo)
+//
+//        val trackGroupArray =
+//            if (tracksInfo.rendererTrackIndex == C.INDEX_UNSET || mappedTrackInfo == null) null
+//            else mappedTrackInfo.getTrackGroups(tracksInfo.rendererTrackIndex)
+//
+//        if (trackGroupArray == null || trackGroupArray.length == 0 || trackGroupArray.length <= tracksInfo.rendererTrackGroupIndex) {
+//            return
+//        }
+//
+//        val group = trackGroupArray[tracksInfo.rendererTrackGroupIndex]
+//        if (group.length <= trackIndex) {
+//            return
+//        }
+//
+//        val parametersBuilder = trackSelector.buildUponParameters()
+//        for (rendererTrackIndex in tracksInfo.rendererTrackIndexes) {
+//            parametersBuilder.clearSelectionOverrides(rendererTrackIndex)
+//            if (tracksInfo.rendererTrackIndex === rendererTrackIndex) {
+//                parametersBuilder.setSelectionOverride(rendererTrackIndex, trackGroupArray,
+//                    SelectionOverride(tracksInfo.rendererTrackGroupIndex, trackIndex))
+//                parametersBuilder.setRendererDisabled(rendererTrackIndex, false)
+//            } else parametersBuilder.setRendererDisabled(rendererTrackIndex, true)
+//        }
+//        trackSelector.setParameters(parametersBuilder)
+//    }
+
+
+
+//        val defaultTrackSelector = DefaultTrackSelector(this).apply {
+//            TrackSelectionParameters.Builder(this@PlayerActivity)
+//                .setTrackSelectionOverrides()
+//                .build()
+//        }
+
+//        val overrides = TrackSelectionOverrides.Builder()
+//            .setOverrideForType(TrackSelectionOverride(TrackGroup(format!!)))
+//            .build()
+//
+//        Log.e("OVERRIDES", overrides.asList().toString())
+//
+//        exoPlayer.trackSelectionParameters.buildUpon()
+//            .setTrackSelectionOverrides(overrides)
+//            .build()
+
+//        val trackSelector = TrackSelectionDialogBuilder(
+//            this,
+//            "Select Track",
+//            trackSelector,
+//            rendererInd
+//        ).build()
+//        trackSelector.show()
