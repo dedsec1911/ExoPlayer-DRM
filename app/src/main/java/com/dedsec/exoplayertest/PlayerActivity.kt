@@ -9,13 +9,15 @@ import androidx.core.view.isGone
 import androidx.core.view.isVisible
 import com.dedsec.exoplayertest.databinding.ActivityPlayerBinding
 import com.google.android.exoplayer2.*
+import com.google.android.exoplayer2.analytics.AnalyticsListener
+import com.google.android.exoplayer2.decoder.DecoderReuseEvaluation
 import com.google.android.exoplayer2.drm.DefaultDrmSessionManager
 import com.google.android.exoplayer2.drm.HttpMediaDrmCallback
 import com.google.android.exoplayer2.source.DefaultMediaSourceFactory
 import com.google.android.exoplayer2.source.MediaSourceFactory
 import com.google.android.exoplayer2.source.TrackGroupArray
 import com.google.android.exoplayer2.source.dash.DashMediaSource
-import com.google.android.exoplayer2.trackselection.DefaultTrackSelector
+import com.google.android.exoplayer2.trackselection.*
 import com.google.android.exoplayer2.trackselection.DefaultTrackSelector.ParametersBuilder
 import com.google.android.exoplayer2.trackselection.DefaultTrackSelector.SelectionOverride
 import com.google.android.exoplayer2.ui.DefaultTrackNameProvider
@@ -25,12 +27,13 @@ import com.google.android.exoplayer2.upstream.DefaultBandwidthMeter
 import com.google.android.exoplayer2.upstream.DefaultDataSource
 import com.google.android.exoplayer2.upstream.DefaultHttpDataSource
 import com.google.android.exoplayer2.util.Assertions
+import com.google.android.exoplayer2.util.EventLogger
 import com.google.android.exoplayer2.util.Util
 import com.google.gson.Gson
 import java.util.*
 
 
-class PlayerActivity : Activity(), Player.Listener {
+class PlayerActivity : Activity(), Player.Listener, AnalyticsListener {
 
     private lateinit var exoPlayer: ExoPlayer
     private lateinit var binding : ActivityPlayerBinding
@@ -65,14 +68,15 @@ class PlayerActivity : Activity(), Player.Listener {
 
         val mediaSource =
             DashMediaSource.Factory(mediaDataSourceFactory)
-                .setDrmSessionManager(drmSessionManager)
-                .createMediaSource(MediaItem.fromUri(STREAM_URL_MPD))
+                //.setDrmSessionManager(drmSessionManager)
+                .createMediaSource(MediaItem.fromUri(STREAM_CLEAR_DASH))
 
         val mediaSourceFactory: MediaSourceFactory =
             DefaultMediaSourceFactory(mediaDataSourceFactory)
 
         val handler = Handler()
-        trackSelector = DefaultTrackSelector(this)
+        val adaptiveTrackSelection = AdaptiveTrackSelection.Factory()
+        trackSelector = DefaultTrackSelector(this, adaptiveTrackSelection)
         val bandwidthMeter = DefaultBandwidthMeter.Builder(this).build()
 
         bandwidthMeter.addEventListener(handler) { elapsedMs, bytesTransferred, _ ->
@@ -81,6 +85,8 @@ class PlayerActivity : Activity(), Player.Listener {
         }
 
         //bandwidthMeter.bitrateEstimate
+        //val params = trackSelectorParameters.setAllowVideoNonSeamlessAdaptiveness(true).build()
+        //trackSelector.parameters = params
 
         exoPlayer = ExoPlayer.Builder(this)
             .setMediaSourceFactory(mediaSourceFactory)
@@ -92,6 +98,9 @@ class PlayerActivity : Activity(), Player.Listener {
 
         exoPlayer.addMediaSource(mediaSource)
         exoPlayer.addListener(this)
+
+        val mEventLogger = EventLogger(trackSelector)
+        exoPlayer.addAnalyticsListener(this)
 
         exoPlayer.playWhenReady = true
         binding.playerView.player = exoPlayer
@@ -107,8 +116,8 @@ class PlayerActivity : Activity(), Player.Listener {
         val format: Format? = exoPlayer.videoFormat
         val trackNameProvider: TrackNameProvider = DefaultTrackNameProvider(resources)
         if (format != null) {
-            Log.e("VIDEO_BITRATE", trackNameProvider.getTrackName(format))
-            Log.e("TRACK_INDEX", format.id.toString())
+//            Log.e("VIDEO_BITRATE", trackNameProvider.getTrackName(format))
+//            Log.e("TRACK_INDEX", format.id.toString())
         }
 
         for (rendererIndex in 0 until 1) {
@@ -133,8 +142,6 @@ class PlayerActivity : Activity(), Player.Listener {
                 }
             }
         }
-
-
     }
 
     private fun showDialog() {
@@ -215,6 +222,17 @@ class PlayerActivity : Activity(), Player.Listener {
         Log.e("ERROR_SUPP_EXCEPTIONS", error.suppressedExceptions.toString())
     }
 
+    override fun onVideoInputFormatChanged(
+        eventTime: AnalyticsListener.EventTime,
+        format: Format,
+        decoderReuseEvaluation: DecoderReuseEvaluation?) {
+        super.onVideoInputFormatChanged(eventTime, format, decoderReuseEvaluation)
+
+        val trackNameProvider: TrackNameProvider = DefaultTrackNameProvider(resources)
+        Log.e("VIDEO_BITRATE", trackNameProvider.getTrackName(format))
+        Log.e("TRACK_INDEX", format.id.toString())
+        println(Gson().toJson(eventTime))
+    }
 
     private fun releasePlayer() {
         exoPlayer.release()
@@ -243,6 +261,7 @@ class PlayerActivity : Activity(), Player.Listener {
     companion object {
         const val STREAM_URL_M3U8 = "https://devstreaming-cdn.apple.com/videos/streaming/examples/bipbop_4x3/bipbop_4x3_variant.m3u8"
         const val STREAM_URL_MPD = "https://storage.googleapis.com/wvmedia/cenc/h264/tears/tears.mpd"
+        const val STREAM_CLEAR_DASH = "https://storage.googleapis.com/wvmedia/clear/h264/tears/tears.mpd"
         const val LICENCE_URL = "https://proxy.uat.widevine.com/proxy?video_id=GTS_HW_SECURE_ALL&provider=widevine_test"
     }
 }
