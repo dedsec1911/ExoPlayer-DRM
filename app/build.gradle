@@ -24,8 +24,8 @@ android {
     }
 
     compileOptions {
-        sourceCompatibility JavaVersion.VERSION_1_8
-        targetCompatibility JavaVersion.VERSION_1_8
+        sourceCompatibility JavaVersion.VERSION_11
+        targetCompatibility JavaVersion.VERSION_11
     }
 
     buildFeatures {
@@ -42,9 +42,14 @@ dependencies {
 
     //ExoPlayer
     implementation 'com.google.android.exoplayer:exoplayer:2.16.1'
+    //ExoPlayer - ADS Extension
+    implementation 'com.google.android.exoplayer:extension-ima:2.16.1'
 
     //GSON
     implementation 'com.google.code.gson:gson:2.8.9'
+
+    //Easy Dialog
+    implementation 'com.github.michaelye.easydialog:easydialog:1.4'
 
     testImplementation 'junit:junit:4.13.2'
     androidTestImplementation 'androidx.test.ext:junit:1.1.3'
